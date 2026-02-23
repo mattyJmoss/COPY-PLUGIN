@@ -1,0 +1,9 @@
+{
+  "id": "copy",
+  "channels": ["copy"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

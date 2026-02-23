@@ -1,0 +1,46 @@
+{
+  "name": "@openclaw/copy",
+  "version": "0.1.0",
+  "description": "OpenClaw Copy channel plugin — voice messaging via the Copy walkie-talkie app",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "register": "node --loader ts-node/esm src/cli/register.ts",
+    "pair": "node --loader ts-node/esm src/cli/pair.ts",
+    "status": "node --loader ts-node/esm src/cli/status.ts"
+  },
+  "peerDependencies": {
+    "openclaw": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.0",
+    "openclaw": "*",
+    "typescript": "^5.8.0"
+  },
+  "dependencies": {
+    "libsodium-wrappers": "^0.7.16",
+    "ws": "^8.19.0",
+    "zod": "^4.3.6"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "channel": {
+      "id": "copy",
+      "label": "Copy",
+      "selectionLabel": "Copy (voice plugin)",
+      "docsPath": "/channels/copy",
+      "docsLabel": "copy",
+      "blurb": "async voice messaging via Copy walkie-talkie app; audio encrypted end-to-end with libsodium.",
+      "order": 90,
+      "quickstartAllowFrom": false
+    },
+    "install": {
+      "localPath": ".",
+      "defaultChoice": "local"
+    }
+  }
+}
