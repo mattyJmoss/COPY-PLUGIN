@@ -1,74 +1,70 @@
 /**
- * Outbound adapter for Copy channel.
+ * Copy outbound adapter — delivers proactive/scheduled messages through Copy.
  *
- * Handles proactive message sending: text → TTS → encrypt → upload to Copy.
+ * All Copy messages are voice: text → TTS → encrypt → upload.
  */
 
+import { join } from "node:path";
+import { homedir } from "node:os";
 import type { ChannelOutboundAdapter } from "openclaw/plugin-sdk";
-import { getCopyRuntime } from "./runtime.js";
-import { loadChannels, loadKeypair } from "./copy/storage.js";
-import { encryptAudio } from "./copy/crypto.js";
-import { uploadMessage } from "./copy/api.js";
-import { generateReplyAudio } from "./copy/audio.js";
-import { createTTSProvider, resolveDataDir, resolveTmpDir, resolveApiUrl } from "./channel.js";
-import type { CoreConfig } from "./types.js";
+import type { CopyConfig, CoreConfig } from "./types.js";
+import { loadKeypair, loadChannels } from "./copy/storage.js";
+import { deliverVoiceReply } from "./copy/deliver.js";
+import { ChatterboxTTS } from "./tts/chatterbox.js";
+
+const DEFAULT_API_URL = "https://walkie-talkie-api.matt8066.workers.dev";
+const DEFAULT_CHATTERBOX_URL = "http://bazzite.local:4123";
+
+function resolveCopyConfig(cfg: CoreConfig): CopyConfig {
+  return cfg.channels?.copy ?? {};
+}
 
 export const copyOutbound: ChannelOutboundAdapter = {
   deliveryMode: "direct",
+  chunker: null,
+  textChunkLimit: 2000,
 
-  // No text chunking — audio messages are sent whole
-  chunkerMode: "plain" as any,
-  textChunkLimit: 10000,
-
-  sendText: async ({ to, text, accountId }) => {
-    const core = getCopyRuntime();
-    const cfg = core.config.loadConfig() as CoreConfig;
-    const copyConfig = cfg.channels?.copy ?? {};
-
-    const dataDir = resolveDataDir(copyConfig.dataDir);
-    const tmpDir = resolveTmpDir(dataDir);
-    const apiUrl = resolveApiUrl(copyConfig.apiUrl);
-
-    // Resolve channel from "to" target
-    const channelId = to.replace(/^channel:/, "");
-    const { channels } = await loadChannels(dataDir);
-    const channel = channels.find((c) => c.channelId === channelId);
-
-    if (!channel) {
-      throw new Error(`No channel info for target: ${to}`);
-    }
+  sendText: async ({ cfg, to, text }) => {
+    const copyConfig = resolveCopyConfig(cfg as CoreConfig);
+    const dataDir = copyConfig.dataDir ?? join(homedir(), ".openclaw", "extensions", "copy", "data");
+    const tmpDir = join(dataDir, "tmp");
+    const apiUrl = copyConfig.apiUrl ?? DEFAULT_API_URL;
+    const tts = new ChatterboxTTS({
+      url: copyConfig.tts?.url ?? DEFAULT_CHATTERBOX_URL,
+      params: copyConfig.tts?.params,
+    });
 
     const keypair = await loadKeypair(dataDir);
     if (!keypair) {
-      throw new Error("No keypair found — run the register CLI first");
+      throw new Error("[Copy outbound] No keypair found");
     }
 
-    // Generate TTS audio
-    const tts = createTTSProvider(copyConfig);
-    const audioBytes = await generateReplyAudio(text, tts, tmpDir, "outbound");
+    // `to` is "dm:{friendUserId}" — find the channel for this peer
+    const friendUserId = to.replace(/^dm:/, "");
+    const { channels } = await loadChannels(dataDir);
+    const channel = channels.find((c) => c.friendUserId === friendUserId);
+    if (!channel) {
+      throw new Error(`[Copy outbound] No channel for peer ${friendUserId}`);
+    }
 
-    // Encrypt
-    const { ciphertext, nonce } = await encryptAudio(
-      new Uint8Array(audioBytes),
-      channel.friendPublicKey,
-      keypair.privateKey,
-    );
-
-    // Upload
-    const result = await uploadMessage(apiUrl, channelId, nonce, ciphertext);
+    const result = await deliverVoiceReply({
+      text,
+      channelId: channel.channelId,
+      friendPublicKey: channel.friendPublicKey,
+      privateKey: keypair.privateKey,
+      apiUrl,
+      tmpDir,
+      tts,
+    });
 
     return {
       channel: "copy",
-      messageId: result.data?.messageId ?? ("unknown" as any),
-      roomId: channelId,
+      messageId: result.messageId ?? "",
     };
   },
 
-  sendMedia: async ({ to, text, mediaUrl, accountId }) => {
-    // Copy only supports audio messages — send text as audio if provided
-    if (text?.trim()) {
-      return copyOutbound.sendText!({ to, text, accountId } as any);
-    }
-    throw new Error("Copy channel only supports audio (voice) messages");
+  sendMedia: async (ctx) => {
+    // Copy is audio-only — fall back to sendText
+    return copyOutbound.sendText!(ctx);
   },
 };

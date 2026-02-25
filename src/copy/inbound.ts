@@ -1,33 +1,27 @@
 /**
  * Inbound message processing for Copy.
  *
- * Handles the full pipeline:
- *   WS event → download → decrypt → STT → OpenClaw pipeline → TTS → encrypt → upload
+ * Pipeline: WS event → download → decrypt → STT → SDK dispatch → deliver callback (TTS → encrypt → upload)
+ *
+ * Uses the SDK's dispatch pipeline (resolveAgentRoute → finalizeInboundContext →
+ * dispatchReplyFromConfig) exactly like Discord and Campfire. The `deliver` callback
+ * handles TTS → encrypt → upload.
  */
 
-import { randomUUID } from "node:crypto";
 import {
   createReplyPrefixOptions,
   type PluginRuntime,
   type RuntimeEnv,
 } from "openclaw/plugin-sdk";
-import type {
-  CopyConfig,
-  CopyMessage,
-  CopyWsEvent,
-  ChannelInfo,
-  Keypair,
-  CoreConfig,
-  DEFAULT_VOICE_PROMPT,
-} from "../types.js";
+import type { CopyConfig, CopyMessage, CopyWsEvent, CoreConfig } from "../types.js";
 import { DEFAULT_VOICE_PROMPT as VOICE_PROMPT } from "../types.js";
-import { downloadAudio, uploadMessage } from "./api.js";
-import { decryptAudioRaw, decryptAudio, encryptAudio } from "./crypto.js";
+import { downloadAudio } from "./api.js";
+import { decryptAudioRaw, decryptAudio } from "./crypto.js";
 import { readUserId, loadChannels, loadKeypair } from "./storage.js";
-import { transcribeAudio, generateReplyAudio } from "./audio.js";
+import { transcribeAudio } from "./audio.js";
+import { deliverVoiceReply } from "./deliver.js";
 import type { STTProvider } from "../stt/interface.js";
 import type { TTSProvider } from "../tts/interface.js";
-import { getCopyRuntime } from "../runtime.js";
 
 const inFlight = new Set<string>();
 let cachedUserId: string | null = null;
@@ -59,7 +53,6 @@ export async function handleCopyWsEvent(
 
   if (msg.type !== "new_message") return;
 
-  // Support different WS event shapes
   let message = (msg.message ?? msg.data ?? msg.payload) as CopyMessage | undefined;
 
   if (!message && (msg as any).messageId) {
@@ -103,7 +96,12 @@ export async function handleCopyWsEvent(
 }
 
 /**
- * Process a single incoming Copy message through the OpenClaw pipeline.
+ * Process a single incoming Copy message through the SDK dispatch pipeline.
+ *
+ * 1. Download + decrypt audio
+ * 2. Transcribe via Whisper
+ * 3. Route through SDK dispatch (resolveAgentRoute → finalizeInboundContext → dispatchReplyFromConfig)
+ * 4. deliver callback: TTS → encrypt → upload
  */
 async function processIncomingMessage(
   message: CopyMessage,
@@ -130,7 +128,7 @@ async function processIncomingMessage(
     return;
   }
 
-  // Download encrypted audio
+  // ── Step 1: Download encrypted audio ──
   log(`[Copy:${tag}] Downloading audio...`);
   const encryptedBytes = await downloadAudio(ctx.apiUrl, id, channelId);
   if (!encryptedBytes || encryptedBytes.length === 0) {
@@ -139,7 +137,7 @@ async function processIncomingMessage(
   }
   log(`[Copy:${tag}] Downloaded ${encryptedBytes.length} bytes`);
 
-  // Decrypt audio
+  // ── Step 2: Decrypt ──
   let decryptedAudio: Uint8Array;
   if (!message.nonce) {
     error(`[Copy:${tag}] No nonce in message`);
@@ -155,7 +153,6 @@ async function processIncomingMessage(
     );
     log(`[Copy:${tag}] Decrypted ${decryptedAudio.length} bytes`);
   } catch {
-    // Maybe R2 returned base64 text
     try {
       const ciphertextB64 = Buffer.from(encryptedBytes).toString("utf8").trim();
       decryptedAudio = await decryptAudio(
@@ -171,7 +168,7 @@ async function processIncomingMessage(
     }
   }
 
-  // Transcribe audio to text
+  // ── Step 3: Transcribe ──
   const transcription = await transcribeAudio(
     decryptedAudio,
     ctx.stt,
@@ -180,78 +177,90 @@ async function processIncomingMessage(
     log,
   );
 
-  // Route through OpenClaw pipeline
-  const core = getCopyRuntime();
-  const cfg = core.config.loadConfig() as CoreConfig;
-  const copyConfig = ctx.copyConfig;
+  if (!transcription?.trim()) {
+    log(`[Copy:${tag}] Empty transcription, skipping`);
+    return;
+  }
 
-  const senderName = channel.friendDisplayName ?? channel.friendUserId.slice(0, 8);
-  const senderId = channel.friendUserId;
+  log(`[Copy] inbound: channel=${channelId.slice(0, 8)} from=${channel.friendDisplayName ?? "?"} text="${transcription.slice(0, 100)}"`);
 
-  const route = core.channel.routing.resolveAgentRoute({
+  // ── Step 4: SDK dispatch pipeline ──
+  const cfg = ctx.core.config.loadConfig() as CoreConfig;
+  const friendUserId = channel.friendUserId;
+
+  // Resolve agent route
+  const route = ctx.core.channel.routing.resolveAgentRoute({
     cfg,
     channel: "copy",
     accountId: ctx.accountId,
-    peer: { kind: "direct", id: senderId },
+    peer: { kind: "direct", id: friendUserId },
   });
 
-  const storePath = core.channel.session.resolveStorePath(cfg.session?.store, {
+  // Build envelope
+  const envelopeFrom = channel.friendDisplayName ?? friendUserId;
+  const envelopeOptions = ctx.core.channel.reply.resolveEnvelopeFormatOptions(cfg);
+  const storePath = ctx.core.channel.session.resolveStorePath(cfg.session?.store, {
     agentId: route.agentId,
   });
 
-  const envelopeOptions = core.channel.reply.resolveEnvelopeFormatOptions(cfg);
-  const previousTimestamp = core.channel.session.readSessionUpdatedAt({
+  const previousTimestamp = ctx.core.channel.session.readSessionUpdatedAt({
     storePath,
     sessionKey: route.sessionKey,
   });
 
-  const voiceHint = copyConfig.voicePrompt ?? VOICE_PROMPT;
-
-  const body = core.channel.reply.formatAgentEnvelope({
+  const body = ctx.core.channel.reply.formatAgentEnvelope({
     channel: "Copy",
-    from: senderName,
+    from: envelopeFrom,
     timestamp: undefined,
     previousTimestamp,
     envelope: envelopeOptions,
     body: transcription,
   });
 
-  const ctxPayload = core.channel.reply.finalizeInboundContext({
+  // Voice prompt: base + optional per-channel system prompt
+  const voiceHint = ctx.copyConfig.voicePrompt ?? VOICE_PROMPT;
+  const channelSystemPrompt = ctx.copyConfig.dm?.channels?.[channelId]?.systemPrompt?.trim();
+  const groupSystemPrompt = channelSystemPrompt
+    ? `${voiceHint}\n\n${channelSystemPrompt}`
+    : voiceHint;
+
+  // Build finalized context
+  const ctxPayload = ctx.core.channel.reply.finalizeInboundContext({
     Body: body,
     BodyForAgent: transcription,
     RawBody: transcription,
     CommandBody: transcription,
-    From: `copy:dm:${senderId}`,
-    To: `channel:${channelId}`,
+    From: `copy:dm:${friendUserId}`,
+    To: `dm:${friendUserId}`,
     SessionKey: route.sessionKey,
     AccountId: route.accountId,
     ChatType: "direct" as const,
-    ConversationLabel: senderName,
-    SenderName: senderName,
-    SenderId: senderId,
-    SenderUsername: senderName,
-    GroupSystemPrompt: voiceHint,
+    ConversationLabel: envelopeFrom,
+    SenderName: envelopeFrom,
+    SenderId: friendUserId,
+    SenderUsername: envelopeFrom,
+    GroupSystemPrompt: groupSystemPrompt,
     Provider: "copy" as const,
     Surface: "copy" as const,
     WasMentioned: true,
     MessageSid: id,
     OriginatingChannel: "copy" as const,
-    OriginatingTo: `channel:${channelId}`,
+    OriginatingTo: `dm:${friendUserId}`,
     CommandAuthorized: true,
     CommandSource: "text" as const,
   });
 
-  await core.channel.session.recordInboundSession({
+  // Record session
+  await ctx.core.channel.session.recordInboundSession({
     storePath,
     sessionKey: ctxPayload.SessionKey ?? route.sessionKey,
     ctx: ctxPayload,
     onRecordError: (err) => {
-      error(`[Copy] session record error: ${String(err)}`);
+      error(`[Copy] failed updating session meta: ${String(err)}`);
     },
   });
 
-  log(`[Copy] inbound: channel=${channelId.slice(0, 8)} from=${senderName} text="${transcription.slice(0, 100)}"`);
-
+  // Reply prefix options
   const { onModelSelected, ...prefixOptions } = createReplyPrefixOptions({
     cfg,
     agentId: route.agentId,
@@ -259,44 +268,27 @@ async function processIncomingMessage(
     accountId: route.accountId,
   });
 
-  const replyTarget = ctxPayload.To;
-  if (!replyTarget) {
-    error("[Copy] missing reply target");
-    return;
-  }
-
-  // Create reply dispatcher — deliver callback handles TTS → encrypt → upload
+  // Create dispatcher with deliver callback
   const { dispatcher, replyOptions, markDispatchIdle } =
-    core.channel.reply.createReplyDispatcherWithTyping({
+    ctx.core.channel.reply.createReplyDispatcherWithTyping({
       ...prefixOptions,
-      humanDelay: core.channel.reply.resolveHumanDelayConfig(cfg, route.agentId),
+      humanDelay: ctx.core.channel.reply.resolveHumanDelayConfig(cfg, route.agentId),
       deliver: async (payload) => {
-        try {
-          const text =
-            typeof payload === "string" ? payload : (payload as any).text ?? String(payload);
-
-          // Generate TTS audio
-          const replyTag = randomUUID().slice(0, 8);
-          const audioBytes = await generateReplyAudio(text, ctx.tts, ctx.tmpDir, replyTag, log);
-
-          // Encrypt
-          const { ciphertext, nonce } = await encryptAudio(
-            new Uint8Array(audioBytes),
-            channel.friendPublicKey,
-            keypair.privateKey,
-          );
-
-          // Upload to Copy
-          const uploadRes = await uploadMessage(ctx.apiUrl, channelId, nonce, ciphertext);
-          if (uploadRes.ok) {
-            log(`[Copy:${tag}] Reply delivered`);
-            log(`  Them:  "${transcription.slice(0, 120)}"`);
-            log(`  Agent: "${text.slice(0, 120)}"`);
-          } else {
-            error(`[Copy:${tag}] Upload failed: ${uploadRes.error}`);
-          }
-        } catch (err) {
-          error(`[Copy] reply delivery failed: ${String(err)}`);
+        const text = typeof payload === "string" ? payload : (payload as any).text ?? String(payload);
+        const result = await deliverVoiceReply({
+          text,
+          channelId,
+          friendPublicKey: channel.friendPublicKey,
+          privateKey: keypair.privateKey,
+          apiUrl: ctx.apiUrl,
+          tmpDir: ctx.tmpDir,
+          tts: ctx.tts,
+          log,
+          error,
+        });
+        if (result.ok) {
+          log(`  Them:  "${transcription.slice(0, 120)}"`);
+          log(`  Agent: "${text.slice(0, 120)}"`);
         }
       },
       onError: (err, info) => {
@@ -304,7 +296,8 @@ async function processIncomingMessage(
       },
     });
 
-  const { queuedFinal, counts } = await core.channel.reply.dispatchReplyFromConfig({
+  // Dispatch
+  const { queuedFinal, counts } = await ctx.core.channel.reply.dispatchReplyFromConfig({
     ctx: ctxPayload,
     cfg,
     dispatcher,
@@ -317,6 +310,6 @@ async function processIncomingMessage(
 
   if (queuedFinal) {
     const finalCount = counts.final;
-    log(`[Copy] delivered ${finalCount} reply${finalCount === 1 ? "" : "ies"} to ${channelId.slice(0, 8)}`);
+    log(`[Copy] delivered ${finalCount} reply${finalCount === 1 ? "" : "ies"} to dm:${friendUserId}`);
   }
 }
