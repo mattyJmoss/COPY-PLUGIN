@@ -13,7 +13,7 @@ import { deliverVoiceReply, deliverGroupVoiceReply } from "./copy/deliver.js";
 import { ChatterboxTTS } from "./tts/chatterbox.js";
 
 const DEFAULT_API_URL = "https://walkie-talkie-api.matt8066.workers.dev";
-const DEFAULT_CHATTERBOX_URL = "http://bazzite.local:4123";
+const DEFAULT_CHATTERBOX_URL = "http://localhost:4123";
 
 function resolveCopyConfig(cfg: CoreConfig): CopyConfig {
   return cfg.channels?.copy ?? {};

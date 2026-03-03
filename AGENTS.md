@@ -9,7 +9,7 @@ An OpenClaw channel plugin that connects to Copy (async voice messaging app). Th
 3. **Plugin manifest example:** `/tmp/copy-plugin-build/campfire-reference-plugin.json`  
 4. **Campfire package.json:** `/tmp/copy-plugin-build/campfire-reference-package.json`
 5. **Campfire tsconfig.json:** `/tmp/copy-plugin-build/campfire-reference-tsconfig.json`
-6. **Full proposal:** `/Users/mattmoss/Documents/Obsidian/Adulting/2026-02-19 - Copy OpenClaw Plugin Proposal.md`
+6. **Full proposal:** (see project docs)
 
 ## Phase 1 Scope (MVP)
 1. Restructure existing Copy client into OpenClaw channel plugin structure

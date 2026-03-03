@@ -33,8 +33,8 @@ import type { STTProvider } from "./stt/interface.js";
 import type { TTSProvider } from "./tts/interface.js";
 
 const DEFAULT_API_URL = "https://walkie-talkie-api.matt8066.workers.dev";
-const DEFAULT_WHISPER_URL = "http://bazzite.local:9000";
-const DEFAULT_CHATTERBOX_URL = "http://bazzite.local:4123";
+const DEFAULT_WHISPER_URL = "http://localhost:9000";
+const DEFAULT_CHATTERBOX_URL = "http://localhost:4123";
 
 const meta = {
   id: "copy",
