@@ -104,3 +104,37 @@ export async function addChannel(dataDir: string, channel: ChannelInfo): Promise
   data.channels.push(channel);
   await saveChannels(dataDir, data);
 }
+
+// ── Channel Secrets (group channels) ──
+
+function secretsDir(dataDir: string): string {
+  return path.join(dataDir, "secrets");
+}
+
+function secretPath(dataDir: string, channelId: string): string {
+  return path.join(secretsDir(dataDir), `${channelId}.key`);
+}
+
+export async function saveChannelSecret(
+  dataDir: string,
+  channelId: string,
+  secret: Uint8Array,
+): Promise<void> {
+  const dir = secretsDir(dataDir);
+  await ensureDir(dir);
+  const p = secretPath(dataDir, channelId);
+  await fs.writeFile(p, Buffer.from(secret), { mode: 0o600 });
+  await fs.chmod(p, 0o600);
+}
+
+export async function loadChannelSecret(
+  dataDir: string,
+  channelId: string,
+): Promise<Uint8Array | null> {
+  try {
+    const buf = await fs.readFile(secretPath(dataDir, channelId));
+    return new Uint8Array(buf);
+  } catch {
+    return null;
+  }
+}

@@ -2,7 +2,7 @@
  * Copy API client — wraps all HTTP calls to the Copy backend.
  */
 
-import type { CopyMessage } from "../types.js";
+import type { CopyMessage, GroupMember, UploadMessageParams } from "../types.js";
 
 export interface ApiResponse<T = unknown> {
   ok: boolean;
@@ -167,15 +167,80 @@ export async function downloadAudio(
 
 export async function uploadMessage(
   apiUrl: string,
-  channelId: string,
-  nonce: string,
-  ciphertext: string,
+  params: UploadMessageParams,
 ): Promise<ApiResponse<{ messageId: string }>> {
-  return request<{ messageId: string }>(apiUrl, "POST", "/message", {
-    channelId,
-    nonce,
-    ciphertext,
-  });
+  const body: Record<string, string> = {
+    channelId: params.channelId,
+    nonce: params.nonce,
+    ciphertext: params.ciphertext,
+  };
+  if (params.type === "group") {
+    body.signature = params.signature;
+    body.encryptionType = "group";
+  }
+  return request<{ messageId: string }>(apiUrl, "POST", "/message", body);
+}
+
+// ── Message Ack ──
+
+export async function ackMessage(
+  apiUrl: string,
+  messageId: string,
+  channelId: string,
+): Promise<ApiResponse> {
+  return request(apiUrl, "POST", `/message/${encodeURIComponent(messageId)}/ack`, { channelId });
+}
+
+// ── Group Channels ──
+
+export interface JoinGroupResult {
+  channelId: string;
+  members: GroupMember[];
+  channelNumber?: number;
+  channelName?: string;
+}
+
+export async function joinGroup(
+  apiUrl: string,
+  token: string,
+): Promise<ApiResponse<JoinGroupResult>> {
+  return request<JoinGroupResult>(apiUrl, "POST", `/join/${encodeURIComponent(token)}`);
+}
+
+export async function uploadSealedKey(
+  apiUrl: string,
+  channelId: string,
+  userId: string,
+  sealedKey: string,
+): Promise<ApiResponse> {
+  return request(
+    apiUrl,
+    "POST",
+    `/channels/${encodeURIComponent(channelId)}/key/${encodeURIComponent(userId)}`,
+    { sealedKey },
+  );
+}
+
+export async function fetchSealedKey(
+  apiUrl: string,
+  channelId: string,
+): Promise<ApiResponse<{ sealedKey: string }>> {
+  return request<{ sealedKey: string }>(
+    apiUrl,
+    "GET",
+    `/channels/${encodeURIComponent(channelId)}/key`,
+  );
+}
+
+export async function fetchMembers(
+  apiUrl: string,
+  channelId: string,
+): Promise<ApiResponse<{ members: GroupMember[] }>> {
+  return request<{ members: GroupMember[] }>(
+    apiUrl,
+    "GET",
+    `/channels/${encodeURIComponent(channelId)}/members`,
+  );
 }
 
 /** Build the WebSocket URL for a channel. */

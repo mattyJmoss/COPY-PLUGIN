@@ -92,12 +92,29 @@ export type Session = {
   expiresAt: number;
 };
 
-/** Stored channel/peer info */
+/** Group channel member */
+export type GroupMember = {
+  userId: string;
+  publicKey: string;
+  signingKey?: string;
+  displayName?: string;
+};
+
+/** Stored channel/peer info (pairwise or group) */
 export type ChannelInfo = {
   channelId: string;
-  friendUserId: string;
-  friendPublicKey: string;
+  channelType?: "pairwise" | "group";
+
+  // Pairwise fields
+  friendUserId?: string;
+  friendPublicKey?: string;
   friendDisplayName?: string;
+
+  // Group fields
+  members?: GroupMember[];
+  channelName?: string;
+  keyVersion?: number;
+
   pairedAt: string;
 };
 
@@ -109,6 +126,9 @@ export type CopyMessage = {
   nonce: string;
   r2Key?: string;
   createdAt: string;
+  encryptionType?: "pairwise" | "group";
+  signature?: string;
+  seq?: number;
 };
 
 /** WebSocket event from Copy */
@@ -120,8 +140,21 @@ export type CopyWsEvent = {
   messageId?: string;
   senderId?: string;
   nonce?: string;
+  // Group event fields
+  userId?: string;
+  displayName?: string;
+  channelId?: string;
+  publicKey?: string;
+  signingKey?: string;
+  keyVersion?: number;
+  name?: string;
   [key: string]: unknown;
 };
+
+/** Discriminated upload params for pairwise vs group messages */
+export type UploadMessageParams =
+  | { type: "pairwise"; channelId: string; nonce: string; ciphertext: string }
+  | { type: "group"; channelId: string; nonce: string; ciphertext: string; signature: string };
 
 /** Default voice format prompt */
 export const DEFAULT_VOICE_PROMPT =

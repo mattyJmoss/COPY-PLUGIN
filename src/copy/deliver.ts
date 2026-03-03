@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import type { TTSProvider } from "../tts/interface.js";
 import { sanitizeForVoice } from "./sanitize.js";
 import { generateReplyAudio } from "./audio.js";
-import { encryptAudio } from "./crypto.js";
+import { encryptAudio, encryptGroupAudio, deriveGroupKey } from "./crypto.js";
 import { uploadMessage } from "./api.js";
 
 export interface DeliverVoiceParams {
@@ -43,7 +43,12 @@ export async function deliverVoiceReply(params: DeliverVoiceParams): Promise<{
       privateKey,
     );
 
-    const uploadRes = await uploadMessage(apiUrl, channelId, nonce, ciphertext);
+    const uploadRes = await uploadMessage(apiUrl, {
+      type: "pairwise",
+      channelId,
+      nonce,
+      ciphertext,
+    });
     if (uploadRes.ok) {
       log?.(`[Copy:${tag}] Reply delivered`);
       return { ok: true, messageId: uploadRes.data?.messageId };
@@ -55,6 +60,64 @@ export async function deliverVoiceReply(params: DeliverVoiceParams): Promise<{
   } catch (err) {
     const errMsg = String(err);
     error?.(`[Copy:${tag}] Delivery failed: ${errMsg}`);
+    return { ok: false, error: errMsg };
+  }
+}
+
+// ── Group Voice Delivery ──
+
+export interface DeliverGroupVoiceParams {
+  text: string;
+  channelId: string;
+  channelSecret: Uint8Array;
+  signingPrivateKey: string;
+  apiUrl: string;
+  tmpDir: string;
+  tts: TTSProvider;
+  log?: (msg: string) => void;
+  error?: (msg: string) => void;
+}
+
+export async function deliverGroupVoiceReply(params: DeliverGroupVoiceParams): Promise<{
+  ok: boolean;
+  messageId?: string;
+  error?: string;
+}> {
+  const { channelId, channelSecret, signingPrivateKey, apiUrl, tmpDir, tts, log, error } = params;
+  const tag = randomUUID().slice(0, 8);
+
+  const text = sanitizeForVoice(params.text);
+  log?.(`[Copy:${tag}] Group TTS input: "${text.slice(0, 120)}"`);
+
+  try {
+    const audioBytes = await generateReplyAudio(text, tts, tmpDir, tag, log);
+
+    const groupKey = await deriveGroupKey(channelSecret);
+    const { ciphertext, nonce, signature } = await encryptGroupAudio(
+      new Uint8Array(audioBytes),
+      groupKey,
+      signingPrivateKey,
+    );
+
+    const uploadRes = await uploadMessage(apiUrl, {
+      type: "group",
+      channelId,
+      nonce,
+      ciphertext,
+      signature,
+    });
+
+    if (uploadRes.ok) {
+      log?.(`[Copy:${tag}] Group reply delivered`);
+      return { ok: true, messageId: uploadRes.data?.messageId };
+    }
+
+    const errMsg = uploadRes.error ?? "upload failed";
+    error?.(`[Copy:${tag}] Group upload failed: ${errMsg}`);
+    return { ok: false, error: errMsg };
+  } catch (err) {
+    const errMsg = String(err);
+    error?.(`[Copy:${tag}] Group delivery failed: ${errMsg}`);
     return { ok: false, error: errMsg };
   }
 }
