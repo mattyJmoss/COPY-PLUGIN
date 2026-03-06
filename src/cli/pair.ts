@@ -5,7 +5,7 @@
  * Usage: openclaw copy pair <pair-link-or-token>
  *
  * Accepts:
- *   - Full URL:  https://walkie-talkie-api.matt8066.workers.dev/pair/abc123def456...
+ *   - Full URL:  https://<api-host>/pair/abc123def456...
  *   - Just path: /pair/abc123def456...
  *   - Just token: abc123def456...
  */
@@ -15,8 +15,9 @@ import { homedir } from "node:os";
 import { loadKeypair, addChannel } from "../copy/storage.js";
 import { loadOrAuthenticate } from "../copy/auth.js";
 import { redeemPairToken } from "../copy/api.js";
+import { DEFAULT_COPY_API_URL } from "../types.js";
 
-const API_URL = process.env.COPY_API_URL ?? "https://walkie-talkie-api.matt8066.workers.dev";
+const API_URL = process.env.COPY_API_URL ?? DEFAULT_COPY_API_URL;
 const DATA_DIR = process.env.COPY_DATA_DIR ?? join(homedir(), ".openclaw", "extensions", "copy", "data");
 
 function extractToken(input: string): string | null {
@@ -37,7 +38,7 @@ async function main() {
 
   if (!input) {
     console.error("Usage: openclaw copy pair <pair-link-or-token>");
-    console.error("Example: openclaw copy pair https://walkie-talkie-api.matt8066.workers.dev/pair/abc123...");
+    console.error(`Example: openclaw copy pair ${API_URL}/pair/abc123...`);
     process.exit(1);
   }
 

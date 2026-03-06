@@ -6,9 +6,11 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "register": "node --loader ts-node/esm src/cli/register.ts",
-    "pair": "node --loader ts-node/esm src/cli/pair.ts",
-    "status": "node --loader ts-node/esm src/cli/status.ts"
+    "postinstall": "node -e \"const{cpSync,existsSync}=require('fs'),p=require('path'),src=p.join('node_modules','libsodium','dist','modules-sumo','libsodium-sumo.js'),dst=p.join('node_modules','libsodium-wrappers','dist','modules-sumo','libsodium-sumo.js');if(existsSync(src)&&!existsSync(dst)){const d=p.dirname(dst);require('fs').mkdirSync(d,{recursive:true});cpSync(src,dst)}\"",
+    "register": "npx tsx src/cli/register.ts",
+    "pair": "npx tsx src/cli/pair.ts",
+    "status": "npx tsx src/cli/status.ts",
+    "join": "npx tsx src/cli/join.ts"
   },
   "peerDependencies": {
     "openclaw": "*"
@@ -17,6 +19,7 @@
     "@types/node": "^22.0.0",
     "@types/ws": "^8.5.0",
     "openclaw": "*",
+    "tsx": "^4.21.0",
     "typescript": "^5.8.0"
   },
   "dependencies": {

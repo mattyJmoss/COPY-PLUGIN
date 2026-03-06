@@ -7,12 +7,10 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { ChannelOutboundAdapter } from "openclaw/plugin-sdk";
-import type { CopyConfig, CoreConfig } from "./types.js";
+import { DEFAULT_COPY_API_URL, type CopyConfig, type CoreConfig } from "./types.js";
 import { loadKeypair, loadChannels, loadChannelSecret } from "./copy/storage.js";
 import { deliverVoiceReply, deliverGroupVoiceReply } from "./copy/deliver.js";
 import { ChatterboxTTS } from "./tts/chatterbox.js";
-
-const DEFAULT_API_URL = "https://walkie-talkie-api.matt8066.workers.dev";
 const DEFAULT_CHATTERBOX_URL = "http://localhost:4123";
 
 function resolveCopyConfig(cfg: CoreConfig): CopyConfig {
@@ -33,7 +31,7 @@ export const copyOutbound: ChannelOutboundAdapter = {
     const copyConfig = resolveCopyConfig(cfg as CoreConfig);
     const dataDir = copyConfig.dataDir ?? join(homedir(), ".openclaw", "extensions", "copy", "data");
     const tmpDir = join(dataDir, "tmp");
-    const apiUrl = copyConfig.apiUrl ?? DEFAULT_API_URL;
+    const apiUrl = copyConfig.apiUrl ?? DEFAULT_COPY_API_URL;
     const tts = new ChatterboxTTS({
       url: copyConfig.tts?.url ?? DEFAULT_CHATTERBOX_URL,
       params: copyConfig.tts?.params,

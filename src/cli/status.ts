@@ -9,8 +9,9 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { loadKeypair, loadSession, loadChannels } from "../copy/storage.js";
 import { getProfile, setSessionToken } from "../copy/api.js";
+import { DEFAULT_COPY_API_URL } from "../types.js";
 
-const API_URL = process.env.COPY_API_URL ?? "https://walkie-talkie-api.matt8066.workers.dev";
+const API_URL = process.env.COPY_API_URL ?? DEFAULT_COPY_API_URL;
 const DATA_DIR = process.env.COPY_DATA_DIR ?? join(homedir(), ".openclaw", "extensions", "copy", "data");
 
 async function main() {

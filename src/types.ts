@@ -1,6 +1,9 @@
 import type { DmPolicy } from "openclaw/plugin-sdk";
 export type { DmPolicy };
 
+/** Default Copy backend API URL. */
+export const DEFAULT_COPY_API_URL = "https://walkie-talkie-api.matt8066.workers.dev";
+
 /** Per-channel (peer) config for Copy */
 export type CopyChannelConfig = {
   /** If false, disable the bot for this peer. */

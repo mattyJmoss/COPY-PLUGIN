@@ -15,8 +15,9 @@ import { saveKeypair, loadKeypair } from "../copy/storage.js";
 import { register, setSessionToken } from "../copy/api.js";
 import { authenticate } from "../copy/auth.js";
 import { updateProfile } from "../copy/api.js";
+import { DEFAULT_COPY_API_URL } from "../types.js";
 
-const API_URL = process.env.COPY_API_URL ?? "https://walkie-talkie-api.matt8066.workers.dev";
+const API_URL = process.env.COPY_API_URL ?? DEFAULT_COPY_API_URL;
 const DATA_DIR = process.env.COPY_DATA_DIR ?? join(homedir(), ".openclaw", "extensions", "copy", "data");
 const DISPLAY_NAME = process.env.COPY_DISPLAY_NAME ?? "OpenClaw";
 

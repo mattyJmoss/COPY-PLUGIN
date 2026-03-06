@@ -18,7 +18,7 @@ import {
 import { CopyConfigSchema } from "./config-schema.js";
 import { copyOutbound } from "./outbound.js";
 import sodium from "libsodium-wrappers";
-import type { CopyConfig, CopyWsEvent, CoreConfig, ChannelInfo, GroupMember, Keypair } from "./types.js";
+import { DEFAULT_COPY_API_URL, type CopyConfig, type CopyWsEvent, type CoreConfig, type ChannelInfo, type GroupMember, type Keypair } from "./types.js";
 import { getCopyRuntime } from "./runtime.js";
 import { loadOrAuthenticate, ensureValidToken } from "./copy/auth.js";
 import { loadKeypair, loadChannels, loadChannelSecret, saveChannelSecret, addChannel } from "./copy/storage.js";
@@ -32,7 +32,6 @@ import { ChatterboxTTS } from "./tts/chatterbox.js";
 import type { STTProvider } from "./stt/interface.js";
 import type { TTSProvider } from "./tts/interface.js";
 
-const DEFAULT_API_URL = "https://walkie-talkie-api.matt8066.workers.dev";
 const DEFAULT_WHISPER_URL = "http://localhost:9000";
 const DEFAULT_CHATTERBOX_URL = "http://localhost:4123";
 
@@ -59,7 +58,7 @@ export function resolveTmpDir(dataDir: string): string {
 
 /** Resolve the Copy API URL. */
 export function resolveApiUrl(configured?: string): string {
-  return configured ?? DEFAULT_API_URL;
+  return configured ?? DEFAULT_COPY_API_URL;
 }
 
 /** Create an STT provider from config. */

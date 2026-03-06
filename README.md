@@ -82,7 +82,7 @@ Generate a keypair and register your bot identity with the Copy backend:
 export COPY_API_URL="https://walkie-talkie-api.matt8066.workers.dev"
 
 # Optional: set a display name
-export COPY_DISPLAY_NAME="Murray"
+export COPY_DISPLAY_NAME="OpenClaw"
 
 npm run register
 ```
@@ -124,7 +124,11 @@ channels:
   copy:
     enabled: true
     apiUrl: "https://walkie-talkie-api.matt8066.workers.dev"
-    displayName: "Murray"
+    displayName: "OpenClaw"
+
+    dm:
+      policy: "open"
+      allowFrom: ["*"]
 
     stt:
       provider: "whisper-api"
@@ -157,6 +161,34 @@ Restart the OpenClaw gateway. The Copy plugin will:
 3. Connect WebSockets for all channels (pairwise + group)
 4. Listen for incoming voice messages
 5. Process through the full pipeline and respond with voice
+
+## Docker / Podman
+
+The Copy voice pipeline requires **ffmpeg** for audio transcoding. If the base OpenClaw Docker image doesn't include it, rebuild with:
+
+```dockerfile
+FROM your-base-image
+RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+```
+
+Or for Alpine-based images:
+
+```dockerfile
+RUN apk add --no-cache ffmpeg
+```
+
+### Container Networking
+
+mDNS hostnames (`.local`) do not resolve inside Docker/Podman containers. If your STT/TTS services are on the local network, use IP addresses instead of `.local` hostnames:
+
+```yaml
+stt:
+  url: "http://192.168.1.100:9000"   # NOT http://bazzite.local:9000
+tts:
+  url: "http://192.168.1.100:4123"   # NOT http://bazzite.local:4123
+```
+
+Use `ping hostname.local` on the host to find the IP address.
 
 ## Configuration Reference
 
