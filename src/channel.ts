@@ -27,6 +27,8 @@ import { handleCopyWsEvent, type InboundContext } from "./copy/inbound.js";
 import { sealChannelSecret, openSealedSecret, ensureSodium } from "./copy/crypto.js";
 import { fetchSealedKey, uploadSealedKey } from "./copy/api.js";
 import { detectLinkType, joinGroupFromInvite, joinPairwiseFromLink } from "./copy/join.js";
+import { setCopyGatewayState, clearCopyGatewayState } from "./gateway-state.js";
+import { createCopyJoinTool } from "./agent-tools/join.js";
 import { WhisperSTT } from "./stt/whisper.js";
 import { ChatterboxTTS } from "./tts/chatterbox.js";
 import type { STTProvider } from "./stt/interface.js";
@@ -185,6 +187,7 @@ export const copyPlugin: ChannelPlugin<ResolvedCopyAccount> = {
     },
   },
   outbound: copyOutbound,
+  agentTools: () => [createCopyJoinTool()],
   status: {
     defaultRuntime: {
       accountId: DEFAULT_ACCOUNT_ID,
@@ -499,6 +502,21 @@ export const copyPlugin: ChannelPlugin<ResolvedCopyAccount> = {
 
       ctx.log?.info(`[Copy] Live — listening on ${pairwiseCount} pairwise + ${groupCount} group channel(s)`);
 
+      // Expose runtime state for agent tools (hot channel join)
+      setCopyGatewayState({
+        apiUrl,
+        dataDir,
+        keypair,
+        cachedUserId: session.userId,
+        cachedChannels,
+        channelSecrets,
+        sockets,
+        inboundCtx,
+        tokenRefresher,
+        dispatchWsEvent,
+        log: (msg) => ctx.log?.info(msg),
+      });
+
       // Clean up on abort
       ctx.abortSignal.addEventListener("abort", () => {
         ctx.log?.info("[Copy] Shutting down...");
@@ -506,6 +524,7 @@ export const copyPlugin: ChannelPlugin<ResolvedCopyAccount> = {
           socket.stop();
         }
         channelSecrets.clear();
+        clearCopyGatewayState();
         ctx.log?.info("[Copy] All sockets closed");
       });
 
